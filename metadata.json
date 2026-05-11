@@ -1,0 +1,8 @@
+{
+  "name": "KSRTC Bidar",
+  "description": "Official KSRTC Real-time Tracking & Booking application for Bidar and surrounding regions.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}

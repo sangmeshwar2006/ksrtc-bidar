@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitive Definitions
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function verifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
+
+    // --- Users ---
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) 
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+      
+      function isValidUser(data) {
+        return data.email is string && data.email.size() <= 256
+          && data.createdAt is timestamp
+          && (data.get('updatedAt', null) == null || data.updatedAt is timestamp)
+          && (data.get('displayName', null) == null || (data.displayName is string && data.displayName.size() <= 100))
+          && (data.get('photoURL', null) == null || (data.photoURL is string && data.photoURL.size() <= 512));
+      }
+    }
+
+    // --- Markers ---
+    match /markers/{markerId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidMarker(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidMarker(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['note', 'pos']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+
+      function isValidMarker(data) {
+        return data.userId == request.auth.uid 
+          && data.note is string && data.note.size() <= 500
+          && data.pos is map && data.pos.lat is number && data.pos.lng is number
+          && data.createdAt is timestamp;
+      }
+    }
+
+    // --- Notifications ---
+    match /notifications/{notificationId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidNotification(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && isValidNotification(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+
+      function isValidNotification(data) {
+        return data.userId == request.auth.uid
+          && data.read is bool
+          && data.title is string && data.title.size() <= 100
+          && data.message is string && data.message.size() <= 500
+          && data.type in ['delay', 'arrival', 'info']
+          && data.time is string && data.time.size() <= 50
+          && data.createdAt is timestamp;
+      }
+    }
+  }
+}
